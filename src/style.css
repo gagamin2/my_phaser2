@@ -1,0 +1,6 @@
+/* 只需要去掉页面默认的边距，游戏画布由 Phaser 自己管理 */
+body {
+  margin: 0;
+  background: #222;
+  overflow: hidden;
+}
