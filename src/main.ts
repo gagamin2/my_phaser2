@@ -18,6 +18,16 @@ class GameScene extends Phaser.Scene {
   // 结束图片（成功/失败）
   private endImage: Phaser.GameObjects.Image | null = null
 
+  //移动挡板位置
+  private updatePaddle(delta:number){
+    const PaddleSpeed=400
+    if(this.cursors.left.isDown){
+      this.paddle.x-=PaddleSpeed*delta
+    }else if(this.cursors.right.isDown){
+      this.paddle.x+=PaddleSpeed*delta
+    }
+  }
+  
   constructor() {
     super('game')
   }
@@ -115,18 +125,11 @@ class GameScene extends Phaser.Scene {
 
   update() {
     if (this.gameOver) return
-    if (this.cursors.left.isDown) {
-      this.paddle.setVelocityX(-400)
-    } else if (this.cursors.right.isDown) {
-      this.paddle.setVelocityX(400)
-    } else {
-      this.paddle.setVelocityX(0)
-    }
-
-    // 球未发射，跟随挡板移动
+    const delta = this.game.loop.delta / 1000
+    this.updatePaddle(delta)
     if (!this.launched) {
-      this.ball.setPosition(this.paddle.x, this.paddle.y - 70)
-    }
+      this.ball.setPosition(this.paddle.x, this.paddle.y- 70)
+    }//发射前球跟随挡板移动
   }
 
   // 游戏结束
