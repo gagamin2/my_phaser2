@@ -1,93 +1,106 @@
 import Phaser from 'phaser'
 import './style.css'
 
-// 游戏场景：一个场景就够用了
 class GameScene extends Phaser.Scene {
 
-  // 这些对象都在 create() 里创建，加 ! 是告诉 TypeScript "稍后一定会赋值"
   private paddle!: Phaser.Types.Physics.Arcade.ImageWithDynamicBody
   private ball!: Phaser.Types.Physics.Arcade.ImageWithDynamicBody
   private bricks!: Phaser.Physics.Arcade.StaticGroup
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
 
-  // 球有没有发射出去（发射前球会跟着挡板走）
   private launched = false
-
-  // 游戏有没有结束（结束就停掉一切，等重新开始）
   private gameOver = false
+
+  // 提示文字
+  private endText: Phaser.GameObjects.Text | null = null
+  private launchText!: Phaser.GameObjects.Text
+
+  // 结束图片（成功/失败）
+  private endImage: Phaser.GameObjects.Image | null = null
 
   constructor() {
     super('game')
   }
 
   preload() {
-  this.load.image('paddle', 'man.jpg')
+    this.load.image('paddle', 'man.jpg')
+    this.load.audio('kun', 'kun.mp3')
+    this.load.audio('niganma', 'niganma.mp3')
+    this.load.image('success', 'success.jpg')
+    this.load.image('failure', 'failure.jpg')
+    this.load.audio('man2','man.mp3')
+    this.load.audio('success2','success.mp3')
   }
 
   create() {
-    // ---------- 先用 Graphics 画出几个纯色纹理当作占位图 ----------
     const g = this.add.graphics()
 
-    // 球：20x20 的白色圆形
-    g.fillStyle(0xffffff)
+    // 篮球：一横线两竖线
+    g.fillStyle(0xf28c28)
     g.fillCircle(10, 10, 10)
+    g.lineStyle(1.5, 0x000000, 1)
+    g.lineBetween(1, 10, 19, 10)
+    g.lineBetween(6, 1, 6, 19)
+    g.lineBetween(14, 1, 14, 19)
     g.generateTexture('ball', 20, 20)
 
-    // 砖块：64x32
+    // 砖块
     g.clear()
-    g.fillStyle(0xff9900)
-    g.fillRect(0, 0, 64, 32)
+    g.fillStyle(0x287b9f)
+    g.fillRoundedRect(0, 0, 64, 32, 6)
+    //砖块顶部高光
+    g.fillStyle(0x4fa3c7)
+    g.fillRoundedRect(3, 3, 58, 5, 3)
     g.generateTexture('brick', 64, 32)
+  
+    g.destroy()
 
-    g.destroy() // 纹理都生成好了，这个画笔可以扔了
-
-    // ---------- 挡板（屏幕下方） ----------
+    // 挡板
     this.paddle = this.physics.add.image(400, 540, 'paddle')
     this.paddle.setDisplaySize(180, 118)
-    // 注意：物理碰撞框默认用的是图片原始大小（600x394），
-    // 必须再调一次 setSize 让碰撞框和显示大小一致
-    this.paddle.body.setSize(180, 118)
-    this.paddle.setImmovable(true)          // 不会被球撞动
-    this.paddle.setCollideWorldBounds(true) // 不能移出屏幕
+    this.paddle.setImmovable(true)
+    this.paddle.setCollideWorldBounds(true)
 
-    // ---------- 球 ----------
+    // 篮球
     this.ball = this.physics.add.image(400, 460, 'ball')
-    this.ball.setBounce(1)                            // 撞到什么都弹回来
-    this.ball.setCollideWorldBounds(true, 1, 1, true) // 撞到屏幕边缘会发出 worldbounds 事件
+    this.ball.setBounce(1)
+    this.ball.setCollideWorldBounds(true, 1, 1, true)
 
-    // 球撞到屏幕底部（也就是挡板没接住）就失败
+    //开始前提示文字
+    this.launchText = this.add.text(400, 300, '点击空格发射篮球', {
+      fontSize: '28px',
+      color: '#164863',
+      fontStyle: 'bold',
+    }).setOrigin(0.5)
+
+    // 球碰撞屏幕底部时，游戏失败
     this.physics.world.on(
       Phaser.Physics.Arcade.Events.WORLD_BOUNDS,
       (body: Phaser.Physics.Arcade.Body) => {
         if (body.gameObject === this.ball && body.blocked.down) {
-          this.endGame('失败\n点击任意键重新开始')
+          this.sound.play('niganma')
+          this.endGame('你干嘛哎呦~~\n点击任意键重新开始', 'failure')
         }
       }
     )
 
-    // ---------- 砖块（屏幕上方，3 行 x 8 列） ----------
     this.bricks = this.physics.add.staticGroup()
-    for (let row = 0; row < 3; row++) {
-      for (let col = 0; col < 8; col++) {
-        const x = 109 + col * 74 // 64 宽 + 10 间距
-        const y = 50 + row * 42  // 32 高 + 10 间距
-        this.bricks.create(x, y, 'brick') // 纹理本来就是橙色，不用再 tint
-      }
-    }
+    this.createBricks()
 
-    // ---------- 碰撞 ----------
-    // 球撞砖块：砖块消失，全没了就赢
+    // 球撞砖块：砖块消失
     this.physics.add.collider(this.ball, this.bricks, (_ball: any, brick: any) => {
+      this.sound.play('kun')
       brick.destroy()
       if (this.bricks.countActive() === 0) {
-        this.endGame('成功\n点击任意键重新开始')
+        this.endGame('基泥苔煤~~\n点击任意键重新开始', 'success')
       }
     })
 
-    // 球撞挡板：默认就是弹开，不用写回调
-    this.physics.add.collider(this.ball, this.paddle)
+    // 球撞挡板：弹开
+    this.physics.add.collider(this.ball, this.paddle, () => {
+      this.sound.play('man2')
+    })
 
-    // ---------- 键盘 ----------
     this.cursors = this.input.keyboard!.createCursorKeys()
 
     // 按空格发射球
@@ -95,23 +108,13 @@ class GameScene extends Phaser.Scene {
       if (!this.launched) {
         this.launched = true
         this.ball.setVelocity(200, -300)
+        this.launchText.setVisible(false)
       }
-    })
-
-    // 游戏结束后：按任意键或者点一下鼠标，就重新开始
-    this.input.keyboard!.on('keydown', () => {
-      if (this.gameOver) this.scene.restart()
-    })
-    this.input.on('pointerdown', () => {
-      if (this.gameOver) this.scene.restart()
     })
   }
 
   update() {
-    // 游戏结束了：什么都不做
     if (this.gameOver) return
-
-    // 左右方向键移动挡板
     if (this.cursors.left.isDown) {
       this.paddle.setVelocityX(-400)
     } else if (this.cursors.right.isDown) {
@@ -120,24 +123,75 @@ class GameScene extends Phaser.Scene {
       this.paddle.setVelocityX(0)
     }
 
-    // 球还没发射的时候，跟着挡板走
+    // 球未发射，跟随挡板移动
     if (!this.launched) {
       this.ball.setPosition(this.paddle.x, this.paddle.y - 70)
     }
   }
 
-  // 游戏结束：停止一切活动，在屏幕中间显示文字
-  private endGame(text: string) {
-    if (this.gameOver) return // 已经结束过了，不用再来一次
+  // 游戏结束
+  private endGame(text: string, imageKey: string) {
+    if (this.gameOver) return
     this.gameOver = true
-    this.ball.setVelocity(0, 0)   // 球停下来
-    this.paddle.setVelocityX(0)   // 挡板停下来
-    this.physics.pause()          // 整个物理世界暂停
-    this.add.text(400, 300, text, {
-      fontSize: '48px',
-      color: '#ffffff',
+    this.ball.setVelocity(0, 0) // 球停
+    this.paddle.setVelocityX(0) // 挡板停
+
+    if (imageKey === 'success') {
+      this.sound.play('success2')
+    }
+
+    // 成功/失败时放置图片
+    this.endImage = this.add.image(180, 300, imageKey).setOrigin(0.5)
+    const ratio = this.endImage.width / this.endImage.height
+    this.endImage.setDisplaySize(200 * ratio, 200)
+
+    // 文字置于图片右边
+    this.endText = this.add.text(510, 300, text, {
+      fontSize: '45px',
+      color: '#ef3753',
       align: 'center',
     }).setOrigin(0.5)
+
+    // 按任意键重启，复位游戏状态
+    this.input.keyboard!.once('keydown', this.resetGame, this)
+    this.input.once('pointerdown', this.resetGame, this)
+  }
+
+  // 重新开始时游戏状态复位
+  private resetGame() {
+    this.input.keyboard!.off('keydown', this.resetGame, this)
+    this.input.off('pointerdown', this.resetGame, this)
+
+    this.gameOver = false
+    this.launched = false
+    this.launchText.setVisible(true)
+
+    // 删掉提示文字和图片
+    this.endText?.destroy()
+    this.endText = null
+    this.endImage?.destroy()
+    this.endImage = null
+
+    // 挡板和球回到初始位置
+    this.paddle.setPosition(400, 540)
+    this.paddle.setVelocityX(0)
+    this.ball.setVelocity(0, 0)
+    this.ball.setPosition(this.paddle.x, this.paddle.y - 70)
+
+    // 重新摆一遍砖块
+    this.bricks.clear(true, true)
+    this.createBricks()
+  }
+
+  // 创建砖块：3*9
+  private createBricks() {
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 9; j++) {
+        const x = 109 + j * 74 // 砖块长64 + 10间距
+        const y = 50 + i * 42  // 砖块宽32 + 10间距
+        this.bricks.create(x, y, 'brick')
+      }
+    }
   }
 }
 
@@ -146,16 +200,15 @@ const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   width: 800,
   height: 600,
-  backgroundColor: '#333333',
-  // 游戏会按比例缩放并居中到窗口里
+  backgroundColor: '#eef7fb',
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   physics: {
-    default: 'arcade', // 用最简单的 Arcade 物理引擎
+    default: 'arcade',
     arcade: {
-      debug: false, // 想看看碰撞框的话可以改成 true
+      debug: false,
     },
   },
   scene: GameScene,
